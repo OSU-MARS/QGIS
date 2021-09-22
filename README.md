@@ -1,4 +1,4 @@
 # Instructions
 
-The manual will be uplodaed here shortyly,
-as a link to view a google doc
+A view link to the manual on Google Docs
+https://docs.google.com/document/d/1k4T7pBsiyCaiF9smgR2OKtg_lHBtuwnwEB0EHXQpxI8/edit?usp=sharing
