@@ -1,7 +1,7 @@
 # ----===USER SETTINGS===----
 
 #PATH FOR THE TEMPORARY LAYERS (string (must be a valid directory with a '/' at the end; example: "c:/rcg/"))
-directory = "c:/rcg/"
+directory = "c:/qgis-mle/"
 #This directory will determine where the temporary layers are placed.
 #THIS MUST BE SET TO A VALID DIRECTORY for this script to run.
 #However, the directory does not need to already exist, as the script will create a new directory if it's not already there
