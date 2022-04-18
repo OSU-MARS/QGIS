@@ -44,31 +44,11 @@ class ReedCanaryProjectDialog(QtWidgets.QDialog, FORM_CLASS):
         self.setupUi(self)
 
 FORM_CLASS1, _ = uic.loadUiType(os.path.join(
-    os.path.dirname(__file__), 'data.ui'
+    os.path.dirname(__file__), 'test_1.ui'
 ))
 
 class Test1Dialog(QtWidgets.QDialog, FORM_CLASS1):
     def __init__(self,parent=None):
         "Constructor."
         super(Test1Dialog, self).__init__(parent)
-        self.setupUi(self)
-
-FORM_CLASS2, _ = uic.loadUiType(os.path.join(
-    os.path.dirname(__file__), 'algorithms.ui'
-))
-
-class AlgoDialog(QtWidgets.QDialog, FORM_CLASS2):
-    def __init__(self,parent=None):
-        "Constructor."
-        super(AlgoDialog, self).__init__(parent)
-        self.setupUi(self)
-
-FORM_CLASS3, _ = uic.loadUiType(os.path.join(
-    os.path.dirname(__file__), 'image_select.ui'
-))
-
-class Image_SelectDialog(QtWidgets.QDialog, FORM_CLASS3):
-    def __init__(self,parent=None):
-        "Constructor."
-        super(Image_SelectDialog, self).__init__(parent)
         self.setupUi(self)

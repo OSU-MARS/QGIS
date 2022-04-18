@@ -1,6 +1,87 @@
-import sys
+# ----===USER SETTINGS===----
 
-from .utils import *
+#PATH FOR THE TEMPORARY LAYERS (string (must be a valid directory with a '/' at the end; example: "c:/rcg/"))
+directory = "T:\Teach\Classes\CS461\ReedCanary" + "/" # add an input that is the file directory 
+#This directory will determine where the temporary layers are placed.
+#THIS MUST BE SET TO A VALID DIRECTORY for this script to run.
+#However, the directory does not need to already exist, as the script will create a new directory if it's not already there
+
+#ROI CLASS IDENTIFIER (string)
+roi_class_identifier = "class-id"
+#This string is used to determine the class of each ROI, the name of the field (attribute), whose value is set to a number for the class of the ROI
+#This will be set to the attribute name that identifies the roi feature within the mle-roi shapefile
+
+#TREATMENT AREA IDENTIFIER (string)
+treatment_area_identifier = "PlotName"
+#This script was made to iterate over treatment areas and provide results for each of these treatments,
+#This will be set to the attribute name that identifies the treatment area feature within the treatment-areas shapefile
+
+#ROI VALIDIATION PROPORTION (min = 0, max = 1)
+roi_validation_proportion = 0.33
+#Determines the proption of ROIs in each class that will be selected for validation
+#Example: If roi_validation_proportion == 0.33, then 1/3 of the ROIs will be used for
+#validation, and the remaining 2/3 will be used for classifiction
+
+#ROI VALIDATION SELECTION PSEUDO-RANDOM (True/False)
+roi_validation_pseudo_random = True
+#If True, the random selection will only be re shuffled when ROIs are added or removed
+#If False, every time the program is run (even if the ROIs are not changed) the selection
+#of which are used for validation/classification will be shuffled again, which will yield different results
+
+#MINIMUM PROBABILITY PER BAND (min = 0, max = 1)
+mle_minimum_probability = 0.001
+#Upon iteration of the Normal Distribution Probability Density Function (NDPDF) at all the bands within 1 pixel, the determined
+#probability (equal to (the result of NDPDF) ^ (the number of bands)) must be greater than (mle_minimum_probability) ^ (the number of bands)
+#otherwise, the pixel will be classified as "unclassified"
+
+temp = []
+
+#--=ADDITIONAL DEBUG OPTIONS=--
+
+#PIXEL READ LOOP MAX (min = 0, max = infinity)
+pixel_read_loop_max = 100
+#IF NOT DEBUGGING, LEAVE THIS AT 0
+#If this set to 0, all pixels will be read as normal
+#If this is set to above 0, only that many pixels will be read before the algorithm stops early.
+
+#PIXEL READ PROPORTION (min = 0, max = 1)
+pixel_read_proportion = 1
+#IF NOT DEBUGGING, LEAVE THIS AT 1
+#If this is set to a value below 1, only that proportion of pixels will be read,
+#When this is below 1, pixels can also be skipped for validation, so this really messes with the validation results
+
+
+#--==end of user settings==--
+
+#Imports, etc.
+from PIL import Image as im
+import urllib.request
+import random
+import numpy as np
+from qgis.core import *
+from matplotlib.pyplot import imshow
+import os
+import math
+import time
+from qgis.PyQt.QtCore import QCoreApplication, QLocale, QThread, qDebug
+from qgis.PyQt.QtWidgets import QPushButton, QApplication
+from qgis.core import *
+from qgis.gui import QgsMessageBar
+from qgis.utils import iface
+from qgis.analysis import QgsZonalStatistics
+from osgeo import gdal
+gdal.AllRegister()
+
+#Create the directory if it doesn't already exist
+if not os.path.exists(directory):
+    os.mkdir(directory)
+if not os.path.exists(directory+"temp/"):
+    os.mkdir(directory+"temp/")
+if not os.path.exists(directory+"temp/shapes"):
+    os.mkdir(directory+"temp/shapes")
+if not os.path.exists(directory+"temp/visual_output"):
+    os.mkdir(directory+"temp/visual_output")
+
 #Start a timer
 start_time = time.time()
 
@@ -32,6 +113,41 @@ band_info  = {
 	3: [710,"710",""],
 	4: [850,"850",""]
 }
+
+#These 4 variables will all later be set the their apporopriate shapefiles
+#An empty string is only used for a placeholder until the script can find the layers
+roi_shapefile = ""
+merged_roi_shapefile_classification = ""
+merged_roi_shapefile_validation = ""
+treatment_areas = ""
+
+#Class_statistics is a dictionary that will later be filled,
+#this will be used to store the statistics calculated on the "merged-rois-classification" shapefile,
+#for faster access in the MLE calculation
+class_statistics_dict = {}
+#These indeces are used as keys in the class_statistics_dict dictionary
+index_mean = 0
+index_stdev = 1
+
+
+#This dictonary will be used to sort the ROIs from the "mle-roi" shapefile,
+#so that some can be used for training, and some for validation
+class_roi_dict = {}
+#These indeces are used as keys in the class_roi_dict dictionary
+index_training_roi = 1
+index_validation_roi = 2
+
+#The numbers will be used in the Normal_Distribution_Probability_Density function
+euler = math.e
+pi = math.pi
+
+#Make a string to track all of the missing layers as an error message. The program will only run if this reamins empty
+missing_layers_error_message = ""
+
+#print("Reading Layers and setting variables...")
+#Read and set variables that were unset above
+#the layers variable will be used to access all the map layers in the current QGIS project
+layers = QgsProject.instance().mapLayers().values()
 
 #This will loop over every band, searching for map layers with the string "(wavelength)nm" in their title, such as "550nm"
 def set_information():
@@ -72,6 +188,16 @@ def set_information():
     else:
         print("Treatment Areas: "+treatment_areas.name())
 
+#This function will return a list of unique colors from a number n.
+#The colors returned will be as different as possible, given n
+#This function could definetley be shortned to a fraction of the lines
+unique_roi_ids = []
+class_colors = None
+mle_adjusted_minimum_probability = None
+num_rois = 0
+raster_pixel_scale_x = None
+raster_pixel_scale_y = None
+
 def raster_definition():
     global missing_layers_error_message
     global unique_roi_ids
@@ -106,6 +232,8 @@ def raster_definition():
         ##print variables to confirm they were set
         #print("raster pixel scale x: "+str(raster_pixel_scale_x))
         #print("raster pixel scale y: "+str(raster_pixel_scale_y))
+
+        #print("Layers read and variables set.\n\n")
         #If this script was previously ran in the same instance, the temporary layers will remain, so remove them if they exist, counting how many were deleted
         #print("Clearing Temporary Layers...")
         num_layers_cleared = 0
@@ -117,6 +245,7 @@ def raster_definition():
 
 
         #Count the total number of ROIs, this number will only be used to seed the selection for ROIs for validation
+        #print("Counting ROIs...")
 
         for roi in roi_shapefile.getFeatures():
             num_rois += 1
@@ -253,6 +382,8 @@ def make_image():
                         class_training_list.append(roi)
     #print("ROIs sorted.\n\n")
 
+
+
     #print("Merging training ROIs for statistics collection...")
     #The ROIs need to be merged, so that the mean and stdev can be calculated for the population of all pixels in all ROIs of the same class
     #Create a new layer for the merged ROIs
@@ -310,6 +441,13 @@ def make_image():
     #print("merge layer", merged_roi_shapefile_classification)
     #print("ROIs merged, ready to collect statistics.\n\n")
 
+classified_pixel_dictionary = {}
+output_image_x_min = 9999999999
+output_image_x_max = 0
+output_image_y_min = 9999999999
+output_image_y_max = 0
+cm_characters_per_entry = 5
+confusion_matrix = {}
 
 def calculate_std_and_mean():
     #print("Calculating Mean and StDev...")
@@ -326,6 +464,7 @@ def calculate_std_and_mean():
     global output_image_y_max
     global confusion_matrix
     global treatment_area_identifier
+    #This for loop simply runs that zonal statistics tool on each of the new merged shapes.
     #Zonal statistics will output the results of the statistics by automatically adding new attributes to the shapefile (merged_roi_shapefile_classification) used
     #This needs to loop over every band so, the difference between each iteration is the raster layer to collect statistics from
     for b in band_info:
@@ -352,6 +491,9 @@ def calculate_std_and_mean():
         ).calculateStatistics(None)
     #print("Calculated Mean and StDev.\n\n")
 
+
+
+    #print("Generating Statistics Dictionary...")
     #The dictionary that will store the statistics for quick access must now be filled by reading the attributes that were appended
     #to the shapefile by QgsZonalStatistics()
     merged_features = merged_roi_shapefile_classification.getFeatures()
@@ -376,6 +518,13 @@ def calculate_std_and_mean():
                 break
     ##print("class_stats",class_statistics_dict)
     ##print("Statistics Dictionary Generated\n\n")
+
+    #Actual equation for probability of a particular variable (band) for a given item (pixel).
+   
+
+    #this function will actually consider the values at all bands in the table passed into it
+    #This function is ran once for every pixel read,
+    #so this function is only classifiying one pixel each time it is called
 
     #This dictionary will store the number of classified pixels,
     #and the class that they were classified into as well as the treatment group they were read from
@@ -438,40 +587,7 @@ treatment_area_offsets = {}
 #This function is ran once for every pixel read,
 #so this function is only classifiying one pixel each time it is called
 
-def treatment_area_setup():
-    global treatment_areas
-    global raster_pixel_scale_x
-    global raster_pixel_scale_y
-    global treatment_area_offsets
-    global output_image_x_min
-    global treatment_area_identifier
-   
-    for treatment_area in treatment_areas.getFeatures():
-        treatment_area_geometry = treatment_area.geometry()
-        bbox = treatment_area_geometry.boundingBox()
-        x_min = bbox.xMinimum()
-        x_max = bbox.xMaximum()
-        y_min = bbox.yMinimum()
-        y_max = bbox.yMaximum()
-        #The locations need to be rounded because pixels values are placed into an array of integers
-        treatment_area_x_offset = math.ceil((x_min-output_image_x_min)/raster_pixel_scale_x)
-        treatment_area_y_offset = math.ceil((y_min-output_image_y_min)/raster_pixel_scale_y)
-        treatment_area_offsets[treatment_area.attribute(treatment_area_identifier)] = [treatment_area_x_offset,treatment_area_y_offset]
-    
-    #more simple calculations to find the x and y bounds of the image
-    output_image_x_range = output_image_x_max - output_image_x_min
-    output_image_y_range = output_image_y_max - output_image_y_min
-    
-    output_image_x_pixels = math.ceil(output_image_x_range / raster_pixel_scale_x)
-    output_image_y_pixels = math.ceil(output_image_y_range / raster_pixel_scale_y)
-
-    #For some reason, the array swaps the x and y axis and also inverts the x axis.
-    #This is why output_image_y_pixels is the first asrgument and ...image_x_pix... is the second
-    output_image_array = np.zeros((output_image_y_pixels,output_image_x_pixels,3),dtype=np.uint8)
-    #print("Empty Output Image Array created with bounds: x = "+str(output_image_x_pixels)+", y = "+str(output_image_y_pixels))
-    treatment_area_calculations(output_image_array, output_image_y_pixels, output_image_x_pixels )
-
-def treatment_area_calculations(output_image_array, output_image_y_pixels, output_image_x_pixels):
+def treatment_area_calculations():
     global merged_roi_shapefile_validation
     global merged_roi_shapefile_classification
     global treatment_areas
@@ -488,7 +604,43 @@ def treatment_area_calculations(output_image_array, output_image_y_pixels, outpu
     global pi
     global start_time
     global cm_characters_per_entry
+    def SpaceText(val,num_chars,first_char,last_char):
+        text = str(val)
+        for i in range(len(text),num_chars):
+            if i%2 == 0:
+                text = text+" "
+            else:
+                text = " "+text
+        return first_char+text+last_char
+    for treatment_area in treatment_areas.getFeatures():
+        treatment_area_geometry = treatment_area.geometry()
+        bbox = treatment_area_geometry.boundingBox()
+        x_min = bbox.xMinimum()
+        x_max = bbox.xMaximum()
+        y_min = bbox.yMinimum()
+        y_max = bbox.yMaximum()
+        
+        #The locations need to be rounded because pixels values are placed into an array of integers
+        treatment_area_x_offset = math.ceil((x_min-output_image_x_min)/raster_pixel_scale_x)
+        treatment_area_y_offset = math.ceil((y_min-output_image_y_min)/raster_pixel_scale_y)
+        treatment_area_offsets[treatment_area.attribute(treatment_area_identifier)] = [treatment_area_x_offset,treatment_area_y_offset]
+    
+    #more simple calculations to find the x and y bounds of the image
+    output_image_x_range = output_image_x_max - output_image_x_min
+    output_image_y_range = output_image_y_max - output_image_y_min
+    
+    output_image_x_pixels = math.ceil(output_image_x_range / raster_pixel_scale_x)
+    output_image_y_pixels = math.ceil(output_image_y_range / raster_pixel_scale_y)
+    
+    #For some reason, the array swaps the x and y axis and also inverts the x axis.
+    #This is why output_image_y_pixels is the first asrgument and ...image_x_pix... is the second
+    output_image_array = np.zeros((output_image_y_pixels,output_image_x_pixels,3),dtype=np.uint8)
+    
+    #print("Empty Output Image Array created with bounds: x = "+str(output_image_x_pixels)+", y = "+str(output_image_y_pixels))
 
+
+    #Now we actually iterate over the pixels to classify them
+    #print("Reading pixels in treatment areas...")
     #pixel_read_loop_break is used as debug option to compare to pixel_read_loop_max to stop early if needed
     pixel_read_loop_break = 0
     #Loop over every treatment area
@@ -559,7 +711,10 @@ def treatment_area_calculations(output_image_array, output_image_y_pixels, outpu
                                 max_likelihood = 0.0
                                 #Initilize the class id identified to -1. if not one class exceeds the minimum likelihood, we will return 0 for unclassified
                                 max_likelilood_class_id = -1
-            
+                                #loop over all class ids
+                                #print("class_stats 467", class_statistics_dict)
+                                def Normal_Distribution_Probability_Density(x,mean,sd):
+                                    return (1/(sd*(math.pow(2*pi,0.5))))*math.pow(euler,(-1/2)*math.pow(((x-mean)/(sd)),2))
                                 for class_id in unique_roi_ids:
                                     #access the dictionary at the index of the current class to get the mean and stdev
                                     class_stats = class_statistics_dict[class_id]
@@ -609,29 +764,12 @@ def treatment_area_calculations(output_image_array, output_image_y_pixels, outpu
                 class_name = "Unclassified"
                 if class_id > 0:
                     class_name = "Class "+str(class_id)
-                print("\t"+class_name+": "+str(plot_counts[class_id]))
+                #print("\t"+class_name+": "+str(plot_counts[class_id]))
         else:
             #print("Stopping after "+str(pixel_read_loop_max)+" pixels")
             break
-    print_matrix(output_image_array)
+    #print("Treatment area pixels read.")
 
-def print_matrix(output_image_array):
-    global merged_roi_shapefile_validation
-    global merged_roi_shapefile_classification
-    global treatment_areas
-    global unique_roi_ids
-    global raster_pixel_scale_x
-    global raster_pixel_scale_y
-    global output_image_dir
-    global treatment_area_offsets
-    global output_image_x_min
-    global confusion_matrix
-    global pixel_read_loop_max
-    global treatment_area_identifier
-    global euler
-    global pi
-    global start_time
-    global cm_characters_per_entry
     ##print the matrix
     cm_column_labels = " Pred. unclas."
     for class_id in unique_roi_ids:
@@ -654,7 +792,8 @@ def print_matrix(output_image_array):
     for class_id in unique_roi_ids:
         cm_row_total_dict[class_id] = 0
         cm_column_total_dict[class_id] = 0
-
+    
+    #k = 
     k = 0
     #Loop over the matrix again, this time to calculate K
     for row in confusion_matrix:
@@ -677,6 +816,11 @@ def print_matrix(output_image_array):
             pe += (cm_row_total_dict[class_id] * cm_column_total_dict[class_id])
         pe /= (n*n)    
         k = (p0-pe)/(1-pe)
+    
+    #print("p0: "+str(p0))
+    #print("pe: "+str(pe))
+    #print("k: "+str(k))
+
     end_time = time.time()
     
     time_elapsed = end_time - start_time
@@ -686,6 +830,7 @@ def print_matrix(output_image_array):
         print("Done. Took "+str(time_elapsed)+" seconds.")        
     else:
         print("Done. Took "+str(time_elapsed_adjusted)+" minutes.") 
+    
     
     #Precision and recall
     #Precision: Positive predicted values (tp)/(tp+fp)
@@ -722,7 +867,9 @@ def print_matrix(output_image_array):
     output_image.save(output_image_path,'PNG',quality=100)
     #print("Output saved as "+output_image_path)
 
-# populate()
+# if __name__ == "__main__":
+    # I will add detailed descriptions for each function after debugging
+    # populate()
 set_information()
 raster_definition()
 make_image()
