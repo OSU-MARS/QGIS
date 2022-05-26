@@ -1,5 +1,5 @@
 ## Assessment of the herbicide efficiency on treating invasive species: the case of reed canary grass using machine learning.
-*Note:* go over to the `qgis-app` branch to look at the source code for the QGIS app & GUI. DO NOT MERGE that branch with `maximum-likelihood` or `random-forest `branch. The 3 different branches in this repo have different functionality and usecases. 
+*Note:* go over to the `qgis-app` branch to look at the source code for the QGIS app & GUI. DO NOT MERGE that branch with `maximum-likelihood` or `random-forest` branch. The 3 different branches in this repo have different functionality and usecases. 
 
 ` Authors: Abhi Balijepalli, Logan Kleditz, Nuocheng Shen`
 
