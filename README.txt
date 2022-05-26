@@ -1,7 +1,7 @@
 Authors: Abhi Balijepalli, Logan Kleditz, Nuocheng Shen
 
 This is the actual plugin that will interface with the QGIS app, this can be added to the plugin folder of your app. 
-You can use the data tab to decide which layer is your data, training, and make an shp ROI file and select the directory where you want the results.
+You can use the data tab to decide which layer is your data layer and training layer. As well as make an shp ROI file and select the directory where you want the results.
 The algorithms tab can be used to decide which algorithms to run.
 The run button will run the selected algorithm with the selected data.
 
@@ -42,7 +42,7 @@ How to run the project:
   8. Select RUN to begin running the algorithm.
 
 Unrealized Features:
-Maximum-likelihood does not work as intended, it is not the ML algorithm, it is a strange image classification algorithm that is masquerading as the ML algorithm. 
-It requires each wavelength of light to be in a separate file, but this is not how most mulit-spectral .tif files are. So there needs to be a massive overhaul of 
+Maximum-likelihood does not work as intended, it is not the ML algorithm that it shares a name with. Keep that in mind as this will be a required change in the coming years. 
+It requires each wavelength of light to be in a separate file, but this is not how most multi-spectral .tif files are. So there needs to be a massive overhaul of 
 the algorithm to make the algorithm work with a single data .tif file that has multiple bands of light on it. Also it currently only works for 4 specific wavelengths 
 of light, this needs to be changed to allow for any wavelengths of light.
